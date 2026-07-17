@@ -1,0 +1,9 @@
+# Données brutes (trop volumineuses pour Git)
+*.csv
+
+# Fichiers temporaires
+resultat.txt
+
+# Environnement Python
+__pycache__/
+*.pyc
