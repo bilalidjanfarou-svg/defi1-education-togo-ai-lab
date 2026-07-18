@@ -91,3 +91,45 @@ df = df.merge(centroides, on="prefecture_nom_bdd", how="left")
 
 df.to_csv("agregation_prefectures.csv", index=False)
 print("\nFichier ré-sauvegardé avec coordonnées : agregation_prefectures.csv")
+
+
+# ============================================================
+# Répartition par catégorie d'établissement, par préfecture
+# ============================================================
+cat_par_pref = (
+    etabs.groupby(["prefecture_nom_bdd", "etablissement_categorie"])
+    .size()
+    .unstack(fill_value=0)
+    .reset_index()
+)
+print("\nRépartition par catégorie et préfecture :")
+print(cat_par_pref)
+
+cat_par_pref.to_csv("categories_prefectures.csv", index=False)
+print("\nFichier sauvegardé : categories_prefectures.csv")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
