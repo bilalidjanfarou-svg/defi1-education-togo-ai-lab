@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import os
 
 # Configuration page
 st.set_page_config(
@@ -11,10 +12,61 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ============= CHARGER OU GÉNÉRER LES DONNÉES =============
+@st.cache_data
+def load_data():
+    """Charge les données, les génère si nécessaire"""
+    
+    # Vérifier si les fichiers existent
+    if not os.path.exists("dashboard_data.csv") or not os.path.exists("categories_prefectures.csv"):
+        st.warning("⏳ Génération des données en cours...")
+        generate_data()
+    
+    df = pd.read_csv("dashboard_data.csv")
+    df = df.sort_values("indice_priorite", ascending=False).reset_index(drop=True)
+    cat = pd.read_csv("categories_prefectures.csv")
+    
+    return df, cat
+
+def generate_data():
+    """Génère les fichiers CSV s'ils n'existent pas"""
+    import re
+    
+    try:
+        # Étape 1 : Charger et traiter les données brutes
+        if not os.path.exists("agregation_prefectures.csv"):
+            # Créer des données d'exemple si les fichiers originaux n'existent pas
+            st.error("⚠️ Les fichiers de données sources (etablissements.csv, etc.) sont manquants.")
+            st.info("Pour utiliser l'app correctement, assurez-vous que les fichiers CSV sont dans le repo.")
+            st.stop()
+        
+        # Charger agregation_prefectures.csv
+        df = pd.read_csv("agregation_prefectures.csv")
+        
+        # Normalisation min-max
+        def normalize(colonne):
+            return (colonne - colonne.min()) / (colonne.max() - colonne.min())
+        
+        df["toilettes_norm"] = normalize(df["ratio_toilettes_par_etab"])
+        df["batiments_norm"] = normalize(df["ratio_batiments_par_etab"])
+        df["bibliotheque_norm"] = df["a_bibliotheque"].astype(float)
+        
+        # Score composite et indice de priorité
+        df["score_infrastructure"] = (
+            (df["toilettes_norm"] + df["batiments_norm"] + df["bibliotheque_norm"]) / 3
+        ).round(4)
+        df["indice_priorite"] = (1 - df["score_infrastructure"]).round(4)
+        
+        # Sauvegarder
+        df.to_csv("dashboard_data.csv", index=False)
+        st.success("✅ dashboard_data.csv généré")
+        
+    except Exception as e:
+        st.error(f"❌ Erreur lors de la génération des données : {e}")
+        st.stop()
+
 # Charger les données
-df = pd.read_csv("dashboard_data.csv")
-df = df.sort_values("indice_priorite", ascending=False).reset_index(drop=True)
-cat = pd.read_csv("categories_prefectures.csv")
+df, cat = load_data()
 
 # Couleurs
 BLEU = "#5b5fc7"
@@ -84,40 +136,47 @@ col1, col2 = st.columns(2)
 # Carte
 with col1:
     st.subheader("📍 Carte des préfectures")
-    fig_map = px.scatter_mapbox(
-        dff,
-        lat="lat",
-        lon="lon",
-        size="total_etablissements",
-        color="indice_priorite",
-        color_continuous_scale=["#20c9ac", "#f5a623", "#e0507f"],
-        hover_name="prefecture_nom_bdd",
-        hover_data={"total_etablissements": True, "indice_priorite": ":.3f", "lat": False, "lon": False},
-        zoom=5,
-        mapbox_style="open-street-map",
-        height=400
-    )
-    fig_map.update_layout(margin=dict(l=0, r=0, t=0, b=0))
-    st.plotly_chart(fig_map, use_container_width=True)
+    if len(dff) > 0:
+        fig_map = px.scatter_mapbox(
+            dff,
+            lat="lat",
+            lon="lon",
+            size="total_etablissements",
+            color="indice_priorite",
+            color_continuous_scale=["#20c9ac", "#f5a623", "#e0507f"],
+            hover_name="prefecture_nom_bdd",
+            hover_data={"total_etablissements": True, "indice_priorite": ":.3f", "lat": False, "lon": False},
+            zoom=5,
+            mapbox_style="open-street-map",
+            height=400
+        )
+        fig_map.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig_map, use_container_width=True)
+    else:
+        st.info("Aucune donnée pour cette sélection")
 
 # Donut
 with col2:
     st.subheader("📊 Répartition par catégorie")
     prefs_visibles = dff["prefecture_nom_bdd"].tolist()
     cat_f = cat[cat["prefecture_nom_bdd"].isin(prefs_visibles)]
-    cat_totaux = cat_f[["College", "Ecole primaire", "Jardin (maternelle)", "Lycée"]].sum().reset_index()
-    cat_totaux.columns = ["Categorie", "Total"]
     
-    fig_donut = px.pie(
-        cat_totaux,
-        names="Categorie",
-        values="Total",
-        hole=0.55,
-        color_discrete_sequence=PALETTE,
-        height=400
-    )
-    fig_donut.update_layout(margin=dict(l=10, r=10, t=0, b=10))
-    st.plotly_chart(fig_donut, use_container_width=True)
+    if len(cat_f) > 0:
+        cat_totaux = cat_f[["College", "Ecole primaire", "Jardin (maternelle)", "Lycée"]].sum().reset_index()
+        cat_totaux.columns = ["Categorie", "Total"]
+        
+        fig_donut = px.pie(
+            cat_totaux,
+            names="Categorie",
+            values="Total",
+            hole=0.55,
+            color_discrete_sequence=PALETTE,
+            height=400
+        )
+        fig_donut.update_layout(margin=dict(l=10, r=10, t=0, b=10))
+        st.plotly_chart(fig_donut, use_container_width=True)
+    else:
+        st.info("Aucune donnée pour cette sélection")
 
 # Radar
 col1, col2 = st.columns(2)
@@ -170,31 +229,34 @@ with col2:
 # ============= TABLEAU DÉTAILLÉ =============
 st.subheader("📋 Table détaillée")
 
-table_display = dff[[
-    "region_nom_bdd",
-    "prefecture_nom_bdd",
-    "total_etablissements",
-    "ratio_toilettes_par_etab",
-    "ratio_batiments_par_etab",
-    "a_bibliotheque",
-    "indice_priorite"
-]].copy()
-
-table_display.columns = [
-    "Région", "Préfecture", "Nb établissements",
-    "Toilettes/étab.", "Bâtiments/étab.", "Bibliothèque", "Indice priorité"
-]
-
-st.dataframe(
-    table_display,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Indice priorité": st.column_config.NumberColumn(format="%.4f"),
-        "Toilettes/étab.": st.column_config.NumberColumn(format="%.2f"),
-        "Bâtiments/étab.": st.column_config.NumberColumn(format="%.2f"),
-    }
-)
+if len(dff) > 0:
+    table_display = dff[[
+        "region_nom_bdd",
+        "prefecture_nom_bdd",
+        "total_etablissements",
+        "ratio_toilettes_par_etab",
+        "ratio_batiments_par_etab",
+        "a_bibliotheque",
+        "indice_priorite"
+    ]].copy()
+    
+    table_display.columns = [
+        "Région", "Préfecture", "Nb établissements",
+        "Toilettes/étab.", "Bâtiments/étab.", "Bibliothèque", "Indice priorité"
+    ]
+    
+    st.dataframe(
+        table_display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Indice priorité": st.column_config.NumberColumn(format="%.4f"),
+            "Toilettes/étab.": st.column_config.NumberColumn(format="%.2f"),
+            "Bâtiments/étab.": st.column_config.NumberColumn(format="%.2f"),
+        }
+    )
+else:
+    st.info("Aucune donnée pour cette sélection")
 
 # ============= FOOTER =============
 st.markdown("---")
