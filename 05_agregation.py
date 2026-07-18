@@ -1,9 +1,24 @@
 import pandas as pd
+import re
+
 pd.set_option("display.width", 200)
 pd.set_option("display.max_columns", None)
 
 # Charger les 4 fichiers
 etabs = pd.read_csv("etablissements.csv")
+# Extraire longitude et latitude depuis la colonne geometry
+def extraire_coordonnees(texte_point):
+    match = re.match(r"POINT \(([-\d.]+) ([-\d.]+)\)", str(texte_point))
+    if match:
+        longitude = float(match.group(1))
+        latitude = float(match.group(2))
+        return pd.Series([longitude, latitude])
+    return pd.Series([None, None])
+
+etabs[["lon", "lat"]] = etabs["geometry"].apply(extraire_coordonnees)
+
+print("\nAperçu des coordonnées extraites :")
+print(etabs[["etablissement_nom", "lon", "lat"]].head())
 toilettes = pd.read_csv("toilettes.csv")
 batiments = pd.read_csv("batiments.csv")
 biblio = pd.read_csv("bibliotheques.csv")
@@ -64,3 +79,15 @@ print(df[["region_nom_bdd", "prefecture_nom_bdd", "ratio_toilettes_par_etab", "r
 # Sauvegarder le tableau final
 df.to_csv("agregation_prefectures.csv", index=False)
 print("\nFichier sauvegardé : agregation_prefectures.csv")
+
+# Calculer le centre géographique (centroïde) de chaque préfecture
+centroides = etabs.groupby("prefecture_nom_bdd")[["lat", "lon"]].mean().reset_index()
+
+print("\nCentroïdes par préfecture :")
+print(centroides)
+
+# Fusionner les centroïdes avec le tableau agrégé
+df = df.merge(centroides, on="prefecture_nom_bdd", how="left")
+
+df.to_csv("agregation_prefectures.csv", index=False)
+print("\nFichier ré-sauvegardé avec coordonnées : agregation_prefectures.csv")
